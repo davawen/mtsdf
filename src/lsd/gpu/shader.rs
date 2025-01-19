@@ -3,7 +3,7 @@ use std::ffi::CStr;
 use sdl3_sys::gpu::*;
 use bitflags::bitflags;
 
-use crate::{error::ErrorKind, log::{log_info, LogCategory}};
+use crate::error::ErrorKind;
 
 use super::{Device, Result};
 

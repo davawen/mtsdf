@@ -18,23 +18,7 @@ pub type CompareOp = SDL_GPUCompareOp;
 
 use super::Color;
 
-/// A texture that should not be freed
-#[derive(Clone)]
-pub struct TextureRef<'a> {
-    pub ptr: *mut SDL_GPUTexture,
-    width: u32,
-    height: u32,
-    _lifetime: PhantomData<&'a ()>
-}
-
-impl<'a> TextureRef<'a> {
-    pub unsafe fn from_raw_parts(ptr: *mut SDL_GPUTexture, width: u32, height: u32) -> Self {
-        Self { ptr, width, height, _lifetime: PhantomData }
-    }
-
-    pub fn width(&self) -> u32 { self.width }
-    pub fn height(&self) -> u32 { self.height }
-}
+use super::texture::*;
 
 #[derive(Clone)]
 pub enum TargetStoreOp<'a> {

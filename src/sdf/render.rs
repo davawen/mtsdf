@@ -53,14 +53,6 @@ impl PerpEdgeSelector {
         }
     }
 
-    // fn reset(&mut self, delta: f32) {
-    //     self.min_true_distance.dist += self.min_true_distance.dist.signum() * delta;
-    //     self.min_negative_perp_dist = -self.min_true_distance.dist.abs();
-    //     self.min_positive_perp_dist = self.min_true_distance.dist.abs();
-    //     self.near_edge = None;
-    //     self.near_edge_t = 0.0;
-    // }
-
     fn merge(&mut self, other: &Self) {
         if other.min_true_distance < self.min_true_distance {
             self.min_true_distance = other.min_true_distance;
@@ -125,13 +117,13 @@ impl PerpEdgeSelector {
     fn distance(&self, point: Vec2) -> f32 {
         let min_distance = if self.min_true_distance.dist < 0.0 { self.min_negative_perp_dist } else { self.min_positive_perp_dist };
 
-        // if let Some(edge) = self.near_edge {
-        //     let distance = self.min_true_distance;
-        //     let distance = edge.segment.distance_to_perp_dist(distance, point, self.near_edge_t);
-        //     if distance.dist.abs() < min_distance.abs() {
-        //         return distance.dist;
-        //     }
-        // }
+        if let Some(edge) = self.near_edge {
+            let distance = self.min_true_distance;
+            let distance = edge.segment.distance_to_perp_dist(distance, point, self.near_edge_t);
+            if distance.dist.abs() < min_distance.abs() {
+                return distance.dist;
+            }
+        }
 
         min_distance
     }
@@ -213,7 +205,7 @@ impl MTEdgeSelector {
 }
 
 pub fn one_shot_distance(shape: &ColouredShape, p: Vec2) -> MultiDistance {
-    let mut selector = PerpEdgeSelector::new();
+    let mut selector = MTEdgeSelector::new();
 
     for c in &shape.contours {
         if c.edges.is_empty() { continue }
@@ -230,8 +222,6 @@ pub fn one_shot_distance(shape: &ColouredShape, p: Vec2) -> MultiDistance {
     }
 
     let mut d = selector.distance(p);
-    // d.a = 1.0;
-    let d = MultiDistance { r: d, g: d, b: d, a: 1.0 };
     d
 } 
 
@@ -249,58 +239,59 @@ impl ColouredShape {
             vec2(px, py)
         };
 
-        let face_pixel_to_image = |p: Vec2| -> (u32, u32) {
-            let x = width as f32 * (((p.x - 0.5) - self.bounds.x_min as f32)/glyph_width);
-            let y = height as f32 * (1.0 - ((p.y - 0.5) - self.bounds.y_min as f32)/glyph_height);
-            (x.clamp(0.0, width as f32 - 1.0) as u32, y.clamp(0.0, height as f32 - 1.0) as u32)
-        };
+        // let face_pixel_to_image = |p: Vec2| -> (u32, u32) {
+        //     let x = width as f32 * (((p.x - 0.5) - self.bounds.x_min as f32)/glyph_width);
+        //     let y = height as f32 * (1.0 - ((p.y - 0.5) - self.bounds.y_min as f32)/glyph_height);
+        //     (x.clamp(0.0, width as f32 - 1.0) as u32, y.clamp(0.0, height as f32 - 1.0) as u32)
+        // };
 
-        // let mut min = std::f32::MAX;
-        // let mut max = std::f32::MIN;
+        let mut min = std::f32::MAX;
+        let mut max = std::f32::MIN;
 
         for y in 0..height {
             for x in 0..width {
                 let p = image_pixel_to_face(x, y);
 
                 let d = one_shot_distance(self, p);
-                // max = max.max(d.r).max(d.g).max(d.b).max(d.a);
-                // min = min.min(d.r).min(d.g).min(d.b).min(d.a);
+                max = max.max(d.r).max(d.g).max(d.b).max(d.a);
+                min = min.min(d.r).min(d.g).min(d.b).min(d.a);
 
                 // let pixel = image::Rgba([d.r.signum()/3.0 + 0.5, d.g.signum()/3.0 + 0.5, d.b.signum()/3.0 + 0.5, 1.0]);
-                let pixel = image::Rgba([d.r/100.0 + 0.5, d.g/100.0 + 0.5, d.b/100.0 + 0.5, 1.0]);
+                // let pixel = image::Rgba([d.r/100.0 + 0.5, d.g/100.0 + 0.5, d.b/100.0 + 0.5, 1.0]);
+                let pixel = image::Rgba([d.r, d.g, d.b, d.a]);
                 img.put_pixel(offset_x + x, offset_y + y, pixel);
             }
         }
 
-        for c in &self.contours {
-            for e in &c.edges {
-                for t in 0..=50 {
-                    let t = t as f32 / 50.0;
-                    let p = e.segment.sample(t);
-                    let (x, y) = face_pixel_to_image(p);
-                    let pixel = [
-                        if e.color.contains(Color::RED) { 1.0 } else { 0.0 },
-                        if e.color.contains(Color::GREEN) { 1.0 } else { 0.0 },
-                        if e.color.contains(Color::BLUE) { 1.0 } else { 0.0 },
-                        1.0
-                    ];
-                    img.put_pixel(offset_x + x, offset_y + y, image::Rgba(pixel));
-                }
-            }
-        }
-
-        // Center range (so that the zero is mapped to 0.5)
-        // min = min.min(-max);
-        // max = max.max(-min);
-        // min = min.min(-max);
-        //
-        // let remap = |x: f32| (x - min)/(max - min);
-        // for y in 0..height {
-        //     for x in 0..width {
-        //         let [r, g, b, a] = img.get_pixel(offset_x + x, offset_y + y).0;
-        //         let pixel = image::Rgba([remap(r), remap(g), remap(b), a]);
-        //         img.put_pixel(offset_x + x, offset_y + y, pixel);
+        // for c in &self.contours {
+        //     for e in &c.edges {
+        //         for t in 0..=50 {
+        //             let t = t as f32 / 50.0;
+        //             let p = e.segment.sample(t);
+        //             let (x, y) = face_pixel_to_image(p);
+        //             let pixel = [
+        //                 if e.color.contains(Color::RED) { 1.0 } else { 0.0 },
+        //                 if e.color.contains(Color::GREEN) { 1.0 } else { 0.0 },
+        //                 if e.color.contains(Color::BLUE) { 1.0 } else { 0.0 },
+        //                 1.0
+        //             ];
+        //             img.put_pixel(offset_x + x, offset_y + y, image::Rgba(pixel));
+        //         }
         //     }
         // }
+
+        // Center range (so that the zero is mapped to 0.5)
+        min = min.min(-max);
+        max = max.max(-min);
+        min = min.min(-max);
+
+        let remap = |x: f32| (x - min)/(max - min);
+        for y in 0..height {
+            for x in 0..width {
+                let [r, g, b, a] = img.get_pixel(offset_x + x, offset_y + y).0;
+                let pixel = image::Rgba([remap(r), remap(g), remap(b), remap(a)]);
+                img.put_pixel(offset_x + x, offset_y + y, pixel);
+            }
+        }
     }
 }

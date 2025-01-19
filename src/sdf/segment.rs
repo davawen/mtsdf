@@ -2,7 +2,7 @@ use std::f32::consts::PI;
 
 use super::{Color, Edge, SignedDistance, Vec2};
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum Segment {
     Line(Vec2, Vec2),
     Quad(Vec2, Vec2, Vec2),
@@ -13,63 +13,6 @@ fn lerp<T: Copy>(a: T, b: T, t: f32) -> T
     where T: std::ops::Add<T, Output = T> + std::ops::Sub<T, Output = T> + std::ops::Mul<f32, Output = T>
 {
     a + (b - a)*t
-}
-
-/// Solve the equation a X^2 + b X + c = 0
-/// Returns the number of solutions that were found, that might be 0, 1, or 2
-/// The contents of the array for unfound roots is always 0.0
-fn solve_quadratic(a: f32, b: f32, c: f32) -> (usize, [f32; 2]) {
-    if a == 0.0 {
-        // solve b X + c = 0
-        if b == 0.0 {
-            (0, [0.0, 0.0])
-        } else {
-            (1, [-c/b, 0.0])
-        }
-    } else {
-        let delta = b*b - 4.0*a*c;
-        if delta < 0.0 {
-            (0, [0.0, 0.0])
-        } else if delta == 0.0 {
-            (1, [-b/(2.0*a), 0.0])
-        } else {
-            let delta = delta.sqrt();
-            (2, [ (-b - delta)/(2.0*a), (-b + delta)/(2.0*a) ])
-        }
-    }
-}
-
-// Solve a X^3 + b X^2 + c X + d = 0
-fn solve_cubic(a: f32, b: f32, c: f32, d: f32) -> (usize, [f32; 3]) {
-    if a != 0.0 {
-        let bn = b / a;
-        if bn.abs() < 1e6 { // error might be too big, otherwise we can just solve it as a quadratic
-            let mut a = a;
-            let a2 = a*a;
-            let q = 1.0 / 9.0 * (a2 - 3.0*b);
-            let r = 1.0/54.0 * (a * (2.0 * a2 - 9.0*b) + 27.0 * c);
-            let r2 = r*r;
-            let q3 = q*q*q;
-            a *= 1.0/3.0;
-            if r2 < q3 {
-                let t = r / q3.sqrt();
-                let t = t.clamp(-1.0, 1.0).acos();
-                let q = -2.0 * q.sqrt();
-                return (3, [q*(1.0/3.0 * t).cos() - a, q*(1.0/3.0 * (t + 2.0*PI)).cos() - a, q*(1.0/3.0 * (t - 2.0*PI)).cos() - a])
-            } else {
-                let u = if r < 0.0 { 1.0 } else { -1.0 } * (r.abs() + (r2 - q3).sqrt()).powf(1.0/3.0);
-                let v = if u == 0.0 { 0.0 } else { q / u };
-                let first = u + v - a;
-                if u == v || (u-v).abs() < 1e-12 * (u + v).abs() {
-                    return (2, [first, -0.5 * (u+v) - a, 0.0])
-                }
-                return (1, [first, 0.0, 0.0])
-            }
-        }
-    }
-
-    let (n, t) = solve_quadratic(b, c, d);
-    (n, [t[0], t[1], 0.0])
 }
 
 impl Segment {
@@ -205,7 +148,14 @@ impl Segment {
                 let c = 2.0 * ab.length_sqr() + qa.dot(br);
                 let d = qa.dot(ab);
 
-                let (num_solutions, solutions) = solve_cubic(a, b, c, d);
+                let roots = roots::find_roots_cubic(a, b, c, d);
+                let (num_solutions, solutions) = match roots {
+                    roots::Roots::No(_) => (0, [0.0, 0.0, 0.0]),
+                    roots::Roots::One([x0]) => (1, [x0, 0.0, 0.0]),
+                    roots::Roots::Two([x0, x1]) => (2, [x0, x1, 0.0]),
+                    roots::Roots::Three([x0, x1, x2]) => (3, [x0, x1, x2]),
+                    _ => unreachable!()
+                };
 
                 let ep_dir = self.direction(0.0);
                 let mut min_dist = ep_dir.cross(qa).signum() * qa.length();

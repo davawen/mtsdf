@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bitflags::bitflags;
 use ttf_parser::{Face, GlyphId, OutlineBuilder, Rect};
 
-#[derive(Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 struct Vec2 { x: f32, y: f32 }
 
 impl std::ops::Add for Vec2 {
@@ -62,7 +62,7 @@ impl Vec2 {
 fn vec2(x: f32, y: f32) -> Vec2 { Vec2 { x, y } }
 
 bitflags! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct Color: u8 {
         const BLACK = 0;
         const RED = 1;
@@ -88,13 +88,13 @@ impl PartialOrd for SignedDistance {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Edge { 
     segment: Segment,
     color: Color
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Contour {
     edges: Vec<Edge>
 }
@@ -154,8 +154,8 @@ pub fn generate_mtsdf(face: &Face) -> image::Rgba32FImage {
         let Some(id) = face.glyph_index(c) else { continue };
         eprintln!("{id:?} {c}");
         let Some(shape) = Shape::from_glyph(face, id) else { continue };
-        let coloured = shape.color_edges(2.0, 0);
 
+        let coloured = shape.color_edges(2.0, 0);
         coloured.generate_mtsdf(&mut image, x, y, 40, 40);
         x += 40;
         if x >= 1000-40 {

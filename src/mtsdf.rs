@@ -23,6 +23,10 @@ struct Vertex {
     pos: Vec3
 }
 
+struct ShapeDrawer<'d> {
+    shape_buffer: gpu::Buffer<'d, Vertex>,
+}
+
 fn main() {
     let font = include_bytes!("/usr/share/fonts/TTF/Iosevka-Medium.ttc").as_slice();
     let font = ttf_parser::Face::parse(font, 0).unwrap();
@@ -122,6 +126,7 @@ fn main() {
 
         let render_pass = cmdbuf.begin_render_pass(&[color_target_info]);
         render_pass.bind_pipeline(&render_pipeline);
+
 
         render_pass.bind_vertex_buffer(0, &[vertex_buffer.vertex_binding(0)]);
         render_pass.draw_primitives(3, 1, 0, 0);

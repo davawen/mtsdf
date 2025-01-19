@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::MaybeUninit, time::Duration};
 
-use sdl3_sys::{events::{SDL_Event, SDL_PollEvent}, init::*, pixels::SDL_FColor, timer::SDL_DelayNS, video::{SDL_CreateWindow, SDL_Window, SDL_WindowFlags}};
+use sdl3_sys::{events::{SDL_Event, SDL_PollEvent}, init::*, pixels::SDL_FColor, timer::SDL_DelayNS, video::{SDL_CreateWindow, SDL_Window}};
 
 pub mod gpu;
 pub mod error;

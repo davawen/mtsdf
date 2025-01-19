@@ -10,11 +10,13 @@ mod primitives;
 mod shader;
 mod device;
 mod buffer;
+mod texture;
 
 pub use device::*;
 pub use primitives::*;
 pub use shader::*;
 pub use buffer::*;
+pub use texture::*;
 
 #[macro_export]
 macro_rules! spirv {
@@ -202,22 +204,6 @@ pub struct Fence<'a> {
     device: &'a Device
 }
 
-impl TextureRef<'_> {
-    /// Create a read-write binding from this texture.
-    /// - `layer_index`: The 3d texture or 2d texture array index
-    /// - `mipmap_level`: Which texture mipmap level to use (or 0 for no mipmaps)
-    /// - `cycle`: Wether to cycle the texture if it is already bound
-    pub fn read_write_binding(&self, layer_index: u32, mipmap_level: u32, cycle: bool) -> StorageTextureReadWriteBinding {
-        StorageTextureReadWriteBinding { 
-            inner: SDL_GPUStorageTextureReadWriteBinding {
-                texture: self.ptr, mip_level: mipmap_level, layer: layer_index, cycle,
-                padding1: 0, padding2: 0, padding3: 0
-            },
-            _lifetime: PhantomData
-        }
-    } 
-}
-
 /// A storage texture read write binding.
 /// You can create one with the [`TextureRef::read_write_binding`] method.
 #[repr(transparent)]
@@ -266,7 +252,7 @@ impl CommandBuffer {
             if !SDL_AcquireGPUSwapchainTexture(self.ptr, window.ptr, &raw mut ptr, &raw mut width, &raw mut height) {
                 return Err(ErrorKind::AcquireSwapchainTexture.open())
             }
-            Ok(TextureRef::from_raw_parts(ptr, width, height))
+            Ok(TextureRef::from_raw_parts(ptr, width, height, 1))
         }
     }
     

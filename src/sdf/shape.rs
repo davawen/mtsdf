@@ -40,7 +40,7 @@ fn symmetrical_trichotomy(position: i32, n: i32) -> i32 {
     return (3.0 + 2.875*(position as f32)/(n as f32 - 1.0)-1.4375 + 0.5) as i32 - 3;
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Shape {
     contours: Vec<Contour>,
     bounds: Rect
@@ -149,7 +149,7 @@ impl Shape {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ColouredShape {
     pub contours: Vec<Contour>,
     pub bounds: Rect
