@@ -61,6 +61,13 @@ impl Vec2 {
 
 fn vec2(x: f32, y: f32) -> Vec2 { Vec2 { x, y } }
 
+pub fn lerp<T: Copy>(a: T, b: T, t: f32) -> T
+    where T: std::ops::Add<T, Output = T> + std::ops::Sub<T, Output = T> + std::ops::Mul<f32, Output = T>
+{
+    a + (b - a)*t
+}
+
+
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct Color: u8 {
@@ -147,24 +154,53 @@ struct Mtsdf {
 }
 
 pub fn generate_mtsdf(face: &Face) -> image::Rgba32FImage {
+    let mut atlas = etagere::AtlasAllocator::new(etagere::size2(1000, 300));
+
+    let font_size = 50.0;
+    let padding = 2.0;
+
     let mut image = image::Rgba32FImage::new(1000, 300);
-    let mut x = 0;
-    let mut y = 0;
-    for c in ('A'..='Z').into_iter().chain('0'..='9').chain('*'..='*') {
+    for c in ('A'..='Z').into_iter().chain('0'..='9').chain('a'..='z').chain('*'..='*') {
         let Some(id) = face.glyph_index(c) else { continue };
-        eprintln!("{id:?} {c}");
         let Some(shape) = Shape::from_glyph(face, id) else { continue };
 
         let coloured = shape.color_edges(2.0, 0);
-        coloured.generate_mtsdf(&mut image, x, y, 40, 40);
-        x += 40;
-        if x >= 1000-40 {
-            x = 0;
-            y += 40;
-            if y >= 300-40 {
-                panic!("ded")
-            }
-        }
+
+        let (width, height) = coloured.rendered_glyph_size(face, font_size, padding);
+
+        eprintln!("{id:?} {c} ({width}x{height})");
+
+        let place = atlas.allocate(etagere::size2(width as i32, height as i32)).unwrap();
+        let offset = place.rectangle.min;
+
+        coloured.generate_mtsdf(face, font_size, padding, |(x, y), [r, g, b, a]| {
+            let median = r.min(g).max(r.max(g).min(b));
+            let median = (median - 0.5)*2.0*font_size;
+
+            let pixel = [
+                lerp(1.0, 0.0, (median + 0.5).clamp(0.0, 1.0)),
+                lerp(1.0, 0.0, (median + 0.5).clamp(0.0, 1.0)),
+                lerp(1.0, 0.0, (median + 0.5).clamp(0.0, 1.0)),
+                lerp(1.0, 0.0, (median + 0.5).clamp(0.0, 1.0))
+            ];
+
+            // let median = -median;
+            // let pixel = match median {
+            //     ..-0.5 => [1.0, 1.0, 1.0, 1.0],
+            //     -0.5..0.5 => [lerp(1.0, 0.0, median + 0.5), lerp(1.0, 0.0, median + 0.5), lerp(1.0, 0.0, median + 0.5), 1.0],
+            //     // 0.5..1.5 => [0.0, 0.0, 0.0, 1.0],
+            //     0.5..2.5 => {
+            //         let t = (median - 0.5).clamp(0.0, 1.0);
+            //         [lerp(0.0, 1.0, t), lerp(0.0, 1.0, t), 0.0, 1.0]
+            //     }
+            //     2.5.. => {
+            //         [1.0, 1.0, 0.0, lerp(1.0, 0.0, (median - 2.5).clamp(0.0, 1.0))]
+            //     }
+            //     _ => [0.0, 0.0, 0.0, 0.0]
+            // };
+
+            image.put_pixel((offset.x as u32) + x, (offset.y as u32) + y, image::Rgba(pixel));
+        });
     }
 
     image

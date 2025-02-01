@@ -1,18 +1,12 @@
 use std::f32::consts::PI;
 
-use super::{Color, Edge, SignedDistance, Vec2};
+use super::{lerp, Color, Edge, SignedDistance, Vec2};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Segment {
     Line(Vec2, Vec2),
     Quad(Vec2, Vec2, Vec2),
     Cubic(Vec2, Vec2, Vec2, Vec2)
-}
-
-fn lerp<T: Copy>(a: T, b: T, t: f32) -> T
-    where T: std::ops::Add<T, Output = T> + std::ops::Sub<T, Output = T> + std::ops::Mul<f32, Output = T>
-{
-    a + (b - a)*t
 }
 
 impl Segment {
@@ -128,7 +122,7 @@ impl Segment {
                 let aq = p - p0;
                 let ab = p1 - p0;
                 let t = aq.dot(ab) / ab.length_sqr();
-                let eq = if t < 0.5 { p0 } else { p1 } - p;
+                let eq = if t <= 0.5 { p0 } else { p1 } - p;
                 let endpoint_dist = eq.length();
                 if t > 0.0 && t < 1.0 {
                     let ortho_dist = ab.orthogonal(false).normalize().dot(aq);
@@ -222,7 +216,7 @@ impl Segment {
                         let d1 = 3.0*ab + 6.0*t*br + 3.0*t*t*r#as;
                         let d2 = 6.0*br + 6.0*t*r#as;
 
-                        t -= qe.dot(d1)/d1.length_sqr() + qe.dot(d2);
+                        t -= qe.dot(d1)/(d1.length_sqr() + qe.dot(d2));
                         if t <= 0.0 || t >= 1.0 { break }
 
                         qe = qa + 3.0*t*ab + 3.0*t*t*br + t*t*t*r#as;

@@ -23,6 +23,24 @@ struct Vertex {
     pos: Vec3
 }
 
+#[repr(C)]
+struct Mat4 {
+    cols: [[f32; 4]; 4]
+}
+
+impl Mat4 {
+    fn from_scale_translate(pos: Vec3, scale: Vec3) -> Self {
+        Mat4 {
+            cols: [
+                [scale.x, 0.0, 0.0, 0.0],
+                [0.0, scale.y, 0.0, 0.0],
+                [0.0, 0.0, scale.z, 0.0],
+                [pos.x, pos.y, pos.z, 1.0],
+            ]
+        }
+    }
+}
+
 struct ShapeDrawer<'d> {
     shape_buffer: gpu::Buffer<'d, Vertex>,
 }
@@ -31,35 +49,13 @@ fn main() {
     let font = include_bytes!("/usr/share/fonts/TTF/Iosevka-Medium.ttc").as_slice();
     let font = ttf_parser::Face::parse(font, 0).unwrap();
 
-    let mtsdf = sdf::generate_mtsdf(&font);
+    // let mtsdf = sdf::generate_mtsdf(&font);
 
-    // let mut rendered = mtsdf.clone();
-    // for pixel in rendered.pixels_mut() {
-    //     // use true distance or mtsdf distance
-    //     let [r, g, b, _a] = pixel.0;
-    //     // let median = match () {
-    //     //     _ if g <= r && r <= b => r,
-    //     //     _ if r <= g && g <= b => g,
-    //     //     _ => b
-    //     // };
-    //
-    //     pixel.0 = [r.round(), g.round(), b.round(), _a];
-    //
-    //     // let median = median - 0.5;
-    //     // if median >= 0.0 {
-    //     //     pixel.0 = [1.0, 1.0, 1.0, 1.0];
-    //     // } else {
-    //     //     pixel.0 = [0.0, 0.0, 0.0, 0.0];
-    //     // }
-    // }
-
-    let mtsdf: image::RgbaImage = mtsdf.convert();
+    // let mtsdf: image::RgbaImage = mtsdf.convert();
     // let rendered: image::RgbaImage = rendered.convert();
 
-    mtsdf.save("out.png").unwrap();
+    // mtsdf.save("out.png").unwrap();
     // rendered.save("out2.png").unwrap();
-
-    return;
 
     let sdl = init(InitFlags::Video).unwrap();
 
@@ -71,6 +67,7 @@ fn main() {
         format: gpu::ShaderFormat::Spirv, 
         stage: gpu::ShaderStage::VERTEX,
         num_storage_buffers: 0,
+        num_uniform_buffers: 1,
         ..Default::default()
     }).unwrap();
     let frag = gpu::Shader::new(&device, spirv!("shaders/mtsdf/frag.glsl", frag), gpu::ShaderCreate {
@@ -97,7 +94,7 @@ fn main() {
         }]
     ).unwrap();
 
-    let vertex_buffer: gpu::Buffer<Vertex> = gpu::Buffer::new(&device, 3, BufferUsage::Vertex).unwrap();
+    let vertex_buffer: gpu::Buffer<Vertex> = gpu::Buffer::new(&device, 6, BufferUsage::Vertex).unwrap();
 
     {
         let cmdbuf = device.acquire_command_buffer().unwrap();
@@ -106,10 +103,15 @@ fn main() {
             Vertex { pos: vec3(0.0, 0.0, 0.0) },
             Vertex { pos: vec3(1.0, 0.0, 0.0) },
             Vertex { pos: vec3(1.0, 1.0, 0.0) },
+            Vertex { pos: vec3(1.0, 1.0, 0.0) },
+            Vertex { pos: vec3(0.0, 1.0, 0.0) },
+            Vertex { pos: vec3(0.0, 0.0, 0.0) },
         ]).unwrap();
         copy_pass.end();
         cmdbuf.submit().unwrap();
     }
+
+    let mut t = 0.0;
 
     let mut open = true;
     while open {
@@ -123,13 +125,18 @@ fn main() {
         let cmdbuf = device.acquire_command_buffer().unwrap();
         let texture = cmdbuf.acquire_swapchain_texture(&window).unwrap();
         let color_target_info = gpu::ColorTargetInfo::new_to_texture_clear(texture, lsd::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 });
-
         let render_pass = cmdbuf.begin_render_pass(&[color_target_info]);
+
+
+        cmdbuf.push_vertex_uniform(0, &[
+            Mat4::from_scale_translate(vec3(-0.5 + t, -0.5, -0.5), vec3(0.2, 0.5, 0.2))
+        ]);
         render_pass.bind_pipeline(&render_pipeline);
 
+        t += 0.01;
 
         render_pass.bind_vertex_buffer(0, &[vertex_buffer.vertex_binding(0)]);
-        render_pass.draw_primitives(3, 1, 0, 0);
+        render_pass.draw_primitives(6, 1, 0, 0);
 
         render_pass.end();
         cmdbuf.submit().unwrap();
