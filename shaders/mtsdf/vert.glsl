@@ -2,10 +2,10 @@
 
 layout (location = 0) in vec3 vertex_pos;
 
-// layout (binding = 0) uniform Camera {
-//
-// }
+layout (set = 1, binding = 0) uniform Position {
+	mat4 transform;
+} pos;
 
 void main() {
-	gl_Position = vec4(vertex_pos, 1.0);
+	gl_Position = pos.transform * vec4(vertex_pos, 1.0);
 }

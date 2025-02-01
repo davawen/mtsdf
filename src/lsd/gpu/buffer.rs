@@ -19,14 +19,27 @@ bitflags! {
 }
 
 
-pub struct Buffer<'a, T> {
+/// A GPU owned memory buffer.
+///
+/// Can only use [`Copy`]-able types
+/// (since they should be copiable to the GPU).
+/// 
+/// Composite types should be marked as #[repr(C)] or serialized.
+/// (You should take a lot of care in aligning data,
+/// GLSL often does not have the same layout as C)
+///
+/// To get data from and to a [`Buffer`],
+/// you can use the [`Buffer::fill_from_slice`] function.
+/// For more complex data transfers,
+/// see [`UploadTransferBuffer`] and [`DownloadTransferBuffer`].
+pub struct Buffer<'a, T: Copy> {
     pub ptr: *mut SDL_GPUBuffer,
     device: &'a Device,
     len: usize,
     _data_type: PhantomData<T>
 }
 
-impl<'a, T> Buffer<'a, T> {
+impl<'a, T: Copy> Buffer<'a, T> {
     /// Creates a new buffer of given len on the given device.
     /// Note that the `len` parameter refers to the number of elements in the buffer,
     /// and not the size in bytes of the buffer.
@@ -83,6 +96,26 @@ impl<'a, T> Buffer<'a, T> {
         }
     }
 
+    /// Fills a GPU buffer from a slice of clonable objects, at the given offset.
+    /// This creates a transfer buffer, fills it with the slice,
+    /// copies it to the GPU buffer, and destroys it.
+    /// Note that if you want to fill multiple buffers, it would be better to create a single transfer buffer.
+    ///
+    /// # Panics
+    /// Panics if the write is out of bounds.
+    pub fn fill_from_slice(&self, copy_pass: &CopyPass, offset: usize, data: &[T]) -> Result<()> {
+        if data.len() + offset > self.len {
+            panic!("out of bounds write to GPU buffer (len is {}, tried to write slice of len {} at offset {})", 
+                self.len, data.len(), offset
+            );
+        }
+
+        let mut transfer_buffer = UploadTransferBuffer::new(self.device, data.len())?;
+        transfer_buffer.fill_from_slice(self.device, data, 0)?;
+        self.fill_from_transfer_buffer(copy_pass, &transfer_buffer, 0, offset);
+        Ok(())
+    }
+
     /// Constructs a vertex buffer binding from the given index.
     /// - `index`: The element index at which the buffer is bound
     /// 
@@ -124,29 +157,7 @@ impl<'a, T> Buffer<'a, T> {
     }
 }
 
-impl<T: Clone> Buffer<'_, T> {
-    /// Fills a GPU buffer from a slice of clonable objects, at the given offset.
-    /// This creates a transfer buffer, fills it with the slice,
-    /// copies it to the GPU buffer, and destroys it.
-    /// Note that if you want to fill multiple buffers, it would be better to create a single transfer buffer.
-    ///
-    /// # Panics
-    /// Panics if the write is out of bounds.
-    pub fn fill_from_slice(&self, copy_pass: &CopyPass, offset: usize, data: &[T]) -> Result<()> {
-        if data.len() + offset > self.len {
-            panic!("out of bounds write to GPU buffer (len is {}, tried to write slice of len {} at offset {})", 
-                self.len, data.len(), offset
-            );
-        }
-
-        let mut transfer_buffer = UploadTransferBuffer::new(self.device, data.len())?;
-        transfer_buffer.fill_from_slice(self.device, data, 0)?;
-        self.fill_from_transfer_buffer(copy_pass, &transfer_buffer, 0, offset);
-        Ok(())
-    }
-}
-
-impl<T> Drop for Buffer<'_, T> {
+impl<T: Copy> Drop for Buffer<'_, T> {
     fn drop(&mut self) {
         unsafe { 
             SDL_ReleaseGPUBuffer(self.device.ptr, self.ptr);
@@ -154,19 +165,19 @@ impl<T> Drop for Buffer<'_, T> {
     }
 }
 
-pub struct UploadTransferBuffer<T> {
+pub struct UploadTransferBuffer<T: Copy> {
     pub ptr: *mut SDL_GPUTransferBuffer,
     len: usize,
     _data_type: PhantomData<T>
 }
 
-pub struct MappedTransferBuffer<'a, T> {
+pub struct MappedTransferBuffer<'a, T: Copy> {
     device_ptr: *mut SDL_GPUDevice,
     buffer_ptr: *mut SDL_GPUTransferBuffer,
     slice: &'a mut [T]
 }
 
-impl<T> UploadTransferBuffer<T> {
+impl<T: Copy> UploadTransferBuffer<T> {
     pub fn new(device: &Device, len: usize) -> Result<Self> {
         let info = SDL_GPUTransferBufferCreateInfo {
             size: (len * std::mem::size_of::<T>()) as u32,
@@ -196,33 +207,9 @@ impl<T> UploadTransferBuffer<T> {
         }
     }
 
-    /// Fills the transfer buffer with some non cloneable data at the given offset.
-    /// Drains the given vector (it will be empty after this call).
-    /// This handles mapping -> copying -> unmapping the buffer for you.
-    /// If you have more complex data patterns, prefer mapping the buffer.
-    /// 
-    /// If your data is [`Clone`] and you don't want to drain the input slice,
-    /// use the [`UploadTransferBuffer::fill_from_slice`] method.
-    /// 
-    /// # Panics
-    /// Panics if the given slice plus offset is out of the buffer bounds
-    pub fn fill_from_vec(&mut self, device: &Device, mut data: Vec<T>, offset: usize) -> Result<()> {
-        let mut mapped = self.map(device, false)?;
-        let len = data.len();
-        let mut drain = data.drain(..);
-        mapped.slice_mut()[offset..offset+len].fill_with(|| drain.next().unwrap());
-
-        Ok(())
-    }
-}
-
-impl<T: Clone> UploadTransferBuffer<T> {
     /// Fills the transfer buffer with some cloneable data at the given offset.
     /// This handles mapping -> copying -> unmapping the buffer for you.
     /// If you have more complex data patterns, prefer mapping the buffer.
-    /// 
-    /// If you want to send non [`Clone`] data to the buffer, 
-    /// use the [`UploadTransferBuffer::fill_from_vec`] method.
     /// 
     /// # Panics
     /// Panics if the given slice plus offset is out of the buffer bounds
@@ -231,9 +218,42 @@ impl<T: Clone> UploadTransferBuffer<T> {
         mapped.slice_mut()[offset..offset+data.len()].clone_from_slice(data);
         Ok(())
     }
+
+    /// Returns the number of elements of type `T` in the buffer.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Interpret the transfer buffer as having another type,
+    /// Changes the length of the buffer to fit the new type.
+    /// 
+    /// # Panics
+    /// Panics if the size of the buffer in bytes is not a multiple of `size_of::<J>()`.
+    ///
+    /// # Safety
+    /// The transmutation should not violate any invariants of the type.
+    /// There are probably problems with alignment
+    /// I'm not aware of that could cause undefined behaviour.
+    pub unsafe fn transmute<J: Copy>(self) -> UploadTransferBuffer<J> {
+        let new_size = std::mem::size_of::<J>();
+        let old_size = std::mem::size_of::<T>();
+        
+        let len_bytes = self.len * old_size;
+        let len = if len_bytes % new_size == 0 {
+            len_bytes / new_size
+        } else {
+            panic!("attempted to transmute buffer with wrongly aligned size.\nlen is {}, size in bytes is {len_bytes}, new_size is {new_size}, {} bytes are left dangling.",
+                self.len, len_bytes % new_size
+            );
+        };
+
+        UploadTransferBuffer {
+            ptr: self.ptr, len, _data_type: PhantomData
+        }
+    }
 }
 
-impl<T> MappedTransferBuffer<'_, T> {
+impl<T: Copy> MappedTransferBuffer<'_, T> {
     pub fn slice(&self) -> &[T] {
         self.slice
     }
@@ -245,20 +265,20 @@ impl<T> MappedTransferBuffer<'_, T> {
     pub fn unmap(self) {}
 }
 
-impl<T> std::ops::Index<usize> for MappedTransferBuffer<'_, T> {
+impl<T: Copy> std::ops::Index<usize> for MappedTransferBuffer<'_, T> {
     type Output = T;
     fn index(&self, index: usize) -> &Self::Output {
         &self.slice[index]
     }
 }
 
-impl<T> std::ops::IndexMut<usize> for MappedTransferBuffer<'_, T> {
+impl<T: Copy> std::ops::IndexMut<usize> for MappedTransferBuffer<'_, T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.slice[index]
     }
 }
 
-impl<T> Drop for MappedTransferBuffer<'_, T> {
+impl<T: Copy> Drop for MappedTransferBuffer<'_, T> {
     fn drop(&mut self) {
         unsafe { SDL_UnmapGPUTransferBuffer(self.device_ptr, self.buffer_ptr) }
     }

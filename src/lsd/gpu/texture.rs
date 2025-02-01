@@ -5,10 +5,11 @@ use sdl3_sys::gpu::*;
 
 use crate::error::{ErrorKind, Result};
 
-use super::{BufferUsage, Device, StorageTextureReadWriteBinding, TextureFormat};
+use super::{BufferUsage, CopyPass, Device, StorageTextureReadWriteBinding, TextureFormat, UploadTransferBuffer};
 
 pub struct Texture<'d> {
     pub ptr: *mut SDL_GPUTexture,
+    format: TextureFormat,
     width: u32,
     height: u32,
     depth: u32,
@@ -131,13 +132,76 @@ impl<'d> Texture<'d> {
                 return Err(ErrorKind::TextureCreation.open())
             }
 
-            Ok(Texture { ptr, device, width, height, depth })
+            Ok(Texture { ptr, format, device, width, height, depth })
         }
     }
 
     pub fn width(&self) -> u32 { self.width }
     pub fn height(&self) -> u32 { self.height }
     pub fn depth(&self) -> u32 { self.depth }
+
+    /// Fills part of a texture from transfer data.
+    /// The data in the transfer buffer should be aligned to the texel size of the texture format.
+    ///
+    /// The transfer buffer needs to be long enough, but it can be longer than needed.
+    /// Data will begin in the transfer buffer at the `transfer_offset` parameter.
+    ///
+    /// # Panics
+    /// Panics if the transfer offset is out of bounds.
+    /// Panics if the transfer buffer is too small to fill the texture region.
+    pub fn fill_from_transfer_buffer<T: Copy>(
+        &self, copy_pass: &CopyPass, 
+        transfer_buffer: &UploadTransferBuffer<T>,
+        transfer_offset: usize,
+        x: u32, y: u32, z: u32, w: u32, h: u32, d: u32,
+        mip_level: u32, layer: u32,
+        cycle: bool
+    ) {
+        if transfer_offset > transfer_buffer.len() {
+            panic!("out of bounds access to transfer buffer while writing to GPU buffer.\nlen is {}, tried to write from offset {}", 
+                transfer_buffer.len(), transfer_offset
+            );
+        }
+
+        let size = unsafe { SDL_CalculateGPUTextureFormatSize(self.format, self.width, self.height, self.depth) };
+        let transfer_size = (transfer_buffer.len() - transfer_offset)*std::mem::size_of::<T>();
+        if transfer_size < size as usize {
+            panic!("transfer buffer too small to fill GPU buffer.\nBuffer size is {transfer_size}, texture needs at least {size}");
+        }
+
+        let info = SDL_GPUTextureTransferInfo {
+            transfer_buffer: transfer_buffer.ptr,
+            offset: transfer_offset as u32,
+            pixels_per_row: w, rows_per_layer: h
+        };
+
+        let region = SDL_GPUTextureRegion {
+            texture: self.ptr,
+            layer, mip_level,
+            x, y, z, w, h, d
+        };
+
+        unsafe {
+            SDL_UploadToGPUTexture(copy_pass.ptr, &raw const info, &raw const region, cycle);
+        }
+    }
+
+    /// Fills a GPU texure region from a slice.
+    /// This creates a transfer buffer, fills it with the slice,
+    /// copies it to the texture, and destroys it.
+    /// 
+    /// # Panics
+    /// Panics if the slice is too small to fill the texture region.
+    pub fn fill_from_slice<T: Copy>(
+        &self, copy_pass: &CopyPass, data: &[T],
+        x: u32, y: u32, z: u32, w: u32, h: u32, d: u32,
+        mip_level: u32, layer: u32, cycle: bool
+    ) -> Result<()> {
+        let mut transfer_buffer = UploadTransferBuffer::new(self.device, data.len())?;
+        transfer_buffer.fill_from_slice(self.device, data, 0)?;
+        self.fill_from_transfer_buffer(copy_pass, &transfer_buffer, 0, x, y, z, w, h, d, mip_level, layer, cycle);
+        Ok(())
+    }
 
     /// Gets a borrowed reference to this texture.
     /// For most operations, you only need a [`TextureRef`].
