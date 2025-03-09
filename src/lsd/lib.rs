@@ -1,11 +1,12 @@
 use std::{ffi::CString, mem::MaybeUninit, time::Duration};
 
-use sdl3_sys::{events::{SDL_Event, SDL_PollEvent}, init::*, pixels::SDL_FColor, timer::SDL_DelayNS, video::{SDL_CreateWindow, SDL_Window}};
+use sdl3_sys::{events::{SDL_Event, SDL_PollEvent}, init::*, pixels::SDL_FColor, timer::SDL_DelayNS, video::{SDL_CreateWindow, SDL_GetWindowSize, SDL_Window}};
 
 pub mod gpu;
 pub mod error;
 pub mod log;
 pub mod render;
+pub mod mouse;
 
 pub type Color = SDL_FColor;
 
@@ -127,4 +128,13 @@ pub fn poll_event() -> Option<SDL_Event> {
 pub fn delay(duration: Duration) {
     let time = duration.as_nanos();
     unsafe { SDL_DelayNS(time as u64) }
+}
+
+pub fn get_window_size(window: &Window) -> (i32, i32) {
+    let mut w = 0;
+    let mut h = 0;
+    unsafe {
+        SDL_GetWindowSize(window.ptr, &raw mut w, &raw mut h);
+    }
+    (w, h)
 }

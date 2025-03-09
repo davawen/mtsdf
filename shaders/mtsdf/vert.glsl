@@ -2,10 +2,15 @@
 
 layout (location = 0) in vec3 vertex_pos;
 
-layout (set = 1, binding = 0) uniform Position {
-	mat4 transform;
-} pos;
+layout (location = 0) out vec3 window_pos;
+
+layout (set = 1, binding = 0) uniform Transform {
+	mat4 model;
+	mat4 view;
+} transform;
 
 void main() {
-	gl_Position = pos.transform * vec4(vertex_pos, 1.0);
+	vec4 pos = transform.model * vec4(vertex_pos, 1.0);
+	window_pos = pos.xyz;
+	gl_Position = transform.view * pos;
 }
